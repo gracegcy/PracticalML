@@ -1,0 +1,66 @@
+---
+title: "Machine Learning Project - Algorithm for Personal Activity Sensors"
+output: html_document
+---
+## Synopsis
+
+One application of personal activity sensors is 'measuring the proper form of weight lifting' (http://groupware.les.inf.puc-rio.br/har). In this project we aim to predict the quality of weight lifting exercise using the sensor data collected.
+
+## Data Processing
+
+After loading datasets, we clean them by removing the columns with near zero covariates, with more than 90% missing values, and with non-integer or non-numeric values. Also we conduct the Pricipal Component Analysis to further reduce the feature for model fit. Note that for every step of dataset transformation, we do the same on both training and testing datasets.
+
+```{r loadData}
+library(caret); library(randomForest); set.seed(6223)
+training <- read.csv("./pml-training.csv", row.names = 1)
+testing <- read.csv("./pml-testing.csv", row.names = 1)
+
+# drop columns of near zero covariates
+nzv <- nearZeroVar(training)
+training <- training[, -nzv]; testing <- testing[,-nzv]
+
+# drop variables with more than 90% missing values
+nmv <- sapply(colnames(training), function(x) if(sum(is.na(training[, x])) > 0.9 * nrow(training)){return(T)}else{return(F)})
+training <- training[, !nmv]; testing <- testing[, !nmv]
+dim(training) # 58 columns left
+
+# drop non-integer or non-numeric columns
+training <- training[,-c(1,4,5)]; testing <- testing[,-c(1,4,5)]
+
+# conduct PCA analysis
+preProc <- preProcess(training[,-55],method="pca",thresh=0.9)
+str(preProc) #numComp = 19
+trainingTransformed <- predict(preProc, training[,-55]); dim(trainingTransformed) # 19 predictors left
+testingTransformed <- predict(preProc, testing[,-55]);
+```
+After feature reduction, there are 19 predictors left for model fitting.
+
+## Random Forest Model
+As the regression model doesn't fit well the dataset with too many feature, we decide to fit the training dataset with random forests algorithm and 80-20 cross validation to predict the classe variable.
+
+```{r 80-20model}
+# partition training dataset
+trainingTransformed2 <- trainingTransformed
+trainingTransformed2[, "class"] <- training$classe
+
+inTrain <- createDataPartition(y=trainingTransformed2$class, p=0.80, list=FALSE)
+trainingTraining <- trainingTransformed2[inTrain,]
+testingTraining <- trainingTransformed2[-inTrain,]
+dim(trainingTraining)
+
+modelFitRF <- train(class ~ ., data = trainingTraining, method="rf")
+modelFitRF
+```
+
+## Results and Error Rate
+```{r accuracy}
+predicts<-predict(modelFitRF,testingTraining[,-20])
+confusionMatrix(testingTraining$class,predicts)
+```
+
+The model accuracy is 97.7%. Based on the lower bound of the confidence interval we would expect to achieve a 97.2% classification accuracy on new data provided. Now we test it on the 20 test cases. 
+
+```{r testPrediction}
+testPredictions <- predict(modelFitRF,newdata=testingTransformed)
+testPredictions
+```
